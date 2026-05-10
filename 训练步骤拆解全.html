@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BabyLM CogLM-Hybrid · 训练步骤拆解</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8f6f2;
+    --surface: #ffffff;
+    --surface-hover: #f3f0e9;
+    --border: #e2ddd4;
+    --border-hover: #c9bfb0;
+    --text: #1c1b18;
+    --text-secondary: #7a7368;
+    --text-tertiary: #a69e92;
+    --accent: #b8735a;
+    --accent-soft: #eedfd8;
+    --accent-light: #f7ede8;
+    --green: #6b8f71;
+    --green-soft: #e2ede4;
+    --green-bg: #eff5f0;
+    --amber: #c49a5a;
+    --amber-soft: #f0e6d4;
+    --amber-bg: #f7f1e4;
+    --blue: #6b8fa3;
+    --blue-soft: #d6e4eb;
+    --blue-bg: #e8f0f4;
+    --red: #b86a6a;
+    --progress-bar: #ddd8cf;
+    --progress-fill: #b8735a;
+    --shadow: 0 1px 3px rgba(28,27,24,0.04), 0 1px 2px rgba(28,27,24,0.02);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font-serif: 'Instrument Serif', Georgia, serif;
+    --font-body: 'Newsreader', Georgia, serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-weight: 400;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ─── Layout ─── */
+  .app { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  /* ─── Header ─── */
+  .header { margin-bottom: 48px; }
+  .header-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin-bottom: 8px;
+  }
+  .header h1 {
+    font-family: var(--font-serif);
+    font-size: 42px;
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+  .header h1 em { font-style: italic; color: var(--accent); }
+  .header-sub {
+    font-size: 17px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .header-sub code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--surface);
+    padding: 1px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  /* ─── Stats Bar ─── */
+  .stats-bar {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 40px;
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .stat-item { display: flex; flex-direction: column; gap: 2px; }
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+  }
+  .stat-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .stat-dot.green { background: var(--green); }
+  .stat-dot.amber { background: var(--amber); }
+  .stat-dot.blue  { background: var(--blue); }
+
+  /* ─── Progress ─── */
+  .progress-section { margin-bottom: 40px; }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .progress-title {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    color: var(--text-secondary);
+  }
+  .progress-pct {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-tertiary);
+  }
+  .progress-track {
+    height: 6px;
+    background: var(--progress-bar);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--progress-fill);
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+
+  /* ─── Steps ─── */
+  .steps { display: flex; flex-direction: column; gap: 20px; }
+
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .step:hover { border-color: var(--border-hover); box-shadow: 0 2px 8px rgba(28,27,24,0.06); }
+  .step.completed { border-left: 3px solid var(--green); }
+  .step.active    { border-left: 3px solid var(--accent); }
+  .step.waiting   { border-left: 3px solid var(--border); opacity: 0.7; }
+
+  /* ─── Step Header ─── */
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px 14px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .step-check {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+    font-size: 11px;
+    color: transparent;
+  }
+  .step.completed .step-check {
+    border-color: var(--green);
+    background: var(--green);
+    color: #fff;
+  }
+  .step.active .step-check {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .step.active .step-check::after {
+    content: '';
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .step-label {
+    flex: 1;
+    min-width: 0;
+  }
+  .step-number {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    letter-spacing: 0.04em;
+  }
+  .step-title {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--text);
+    margin-top: -1px;
+  }
+  .step.completed .step-title { color: var(--text-secondary); text-decoration: line-through 1.5px var(--green); text-decoration-color: var(--green); }
+  .step.active .step-title { color: var(--accent); }
+
+  .step-meta {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+  .time-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg);
+    padding: 2px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .toggle-arrow {
+    font-size: 14px;
+    color: var(--text-tertiary);
+    transition: transform 0.3s ease;
+  }
+  .step-header.open .toggle-arrow { transform: rotate(180deg); }
+
+  /* ─── Step Body ─── */
+  .step-body {
+    display: none;
+    padding: 0 20px 20px 58px;
+    border-top: 1px solid var(--border);
+  }
+  .step-header.open + .step-body { display: block; }
+
+  .step-body p, .step-body ul { margin-bottom: 12px; }
+  .step-body p { color: var(--text-secondary); line-height: 1.8; }
+  .step-body strong { color: var(--text); font-weight: 600; }
+  .step-body ul { list-style: none; padding: 0; }
+  .step-body li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+  }
+  .step-body li::before {
+    content: '—';
+    position: absolute;
+    left: 0;
+    color: var(--text-tertiary);
+  }
+
+  /* ─── Subtask Checklist ─── */
+  .subtask-list { margin: 12px 0 8px; }
+  .subtask {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 6px 10px 6px 6px;
+    margin-bottom: 2px;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  .subtask:hover { background: var(--surface-hover); }
+  .subtask-check {
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid var(--border);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: transparent;
+  }
+  .subtask.done .subtask-check {
+    border-color: var(--green);
+    background: var(--green);
+    color: #fff;
+  }
+  .subtask.done .subtask-label {
+    text-decoration: line-through;
+    color: var(--text-tertiary);
+  }
+  .subtask-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .subtask-label code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg);
+    padding: 0 6px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+
+  /* ─── Info Callout ─── */
+  .callout {
+    margin-top: 12px;
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .callout.note {
+    background: var(--blue-bg);
+    border-left: 3px solid var(--blue);
+    color: #486b7a;
+  }
+  .callout.warn {
+    background: var(--amber-bg);
+    border-left: 3px solid var(--amber);
+    color: #8a7340;
+  }
+  .callout.tip {
+    background: var(--green-bg);
+    border-left: 3px solid var(--green);
+    color: #4d6e52;
+  }
+  .callout code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: rgba(0,0,0,0.04);
+    padding: 0 6px;
+    border-radius: 3px;
+  }
+
+  /* ─── Reset Button ─── */
+  .reset-bar {
+    margin-top: 32px;
+    display: flex;
+    justify-content: center;
+  }
+  .reset-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    background: none;
+    border: 1px solid var(--border);
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .reset-btn:hover {
+    color: var(--text);
+    border-color: var(--text-tertiary);
+    background: var(--surface);
+  }
+
+  /* ─── Footer ─── */
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+  .footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .footer a:hover { color: var(--text); border-color: var(--text-secondary); }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 640px) {
+    .app { padding: 24px 16px 48px; }
+    .header h1 { font-size: 28px; }
+    .stats-bar { gap: 12px; padding: 16px; }
+    .stat-value { font-size: 15px; }
+    .step-body { padding: 0 16px 16px 48px; }
+    .step-meta .time-badge { display: none; }
+  }
+
+  /* ─── Save hint ─── */
+  .save-hint {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-label">Training Pipeline · Strict-Small 10M</div>
+    <h1>BabyLM <em>CogLM-Hybrid</em></h1>
+    <p class="header-sub">
+      双路 Mamba-2 · 混合线性注意力 · 两阶段情感训练&nbsp;&nbsp;
+      <code>M4 Pro ~24h</code>
+    </p>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-item">
+      <span class="stat-value" id="statDone">0</span>
+      <span class="stat-label">Done</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value" id="statTotal">9</span>
+      <span class="stat-label">Steps</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value"><span id="statSubDone">0</span>/<span id="statSubTotal">0</span></span>
+      <span class="stat-label">Sub-tasks</span>
+    </div>
+    <div class="stat-item" style="margin-left:auto;">
+      <span class="stat-value" style="font-size:14px;font-weight:400;">
+        <span class="stat-dot green"></span>架构
+        <span class="stat-dot amber" style="margin-left:12px;"></span>两阶段
+      </span>
+      <span class="stat-label">Design</span>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-section">
+    <div class="progress-header">
+      <span class="progress-title">Progress</span>
+      <span class="progress-pct" id="progressPct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+
+  <!-- Steps Container -->
+  <div class="steps" id="stepsContainer"></div>
+
+  <!-- Reset -->
+  <div class="reset-bar">
+    <button class="reset-btn" onclick="resetAll()">↺ Reset All</button>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>BabyLM 2026 · Strict-Small</span>
+    <span>last saved <span id="saveTime">—</span></span>
+  </div>
+
+  <div class="save-hint">✓ auto-saves to localStorage</div>
+</div>
+
+<script>
+// ─── Data ───
+const STEPS = [
+  {
+    id: 0,
+    title: '环境搭建',
+    time: 'once',
+    notes: '创建项目目录结构，安装依赖，克隆评测仓库，验证硬件。',
+    refs: ['整理思路 - 数据处理.md', '整理思路 - 混合线性注意力架构.md'],
+    subs: [
+      { label: '创建 data/ tokenizers/ checkpoints/ scripts/ src/ configs/ 目录' },
+      { label: '安装 torch, transformers, datasets, accelerate, tokenizers' },
+      { label: '安装 mamba-ssm, causal-conv1d (Mamba-2)' },
+      { label: '安装 evaluate (BabyLM 评测库)' },
+      { label: 'git clone babylm-eval && pip install -r requirements.txt' },
+      { label: '验证: torch.cuda / Mamba2 import / datasets load' },
+    ],
+    warns: [
+      'PyTorch 版本需与 CUDA 驱动匹配；M4 Pro 用 MPS 后端，确认 mamba-ssm 是否支持',
+    ],
+  },
+  {
+    id: 1,
+    title: '下载官方数据 + 清洗',
+    time: '~30 min',
+    color: 'blue',
+    notes: '从 HuggingFace 下载 BabyLM-2026-Strict-Small 数据集，清洗后输出 JSONL。',
+    refs: ['整理思路 - 数据处理.md'],
+    subs: [
+      { label: 'load_dataset("BabyLM-community/BabyLM-2026-Strict-Small")' },
+      { label: '清洗: 去短(<3词) / 去长(>2048词) / 去URL / 去特殊字符 / 去重复字符' },
+      { label: '输出 data/jsonl/babylm_train.jsonl' },
+      { label: '统计: 总行数 / 总词数 / 平均长度' },
+    ],
+    warns: [
+      '官方数据为 10M words，清洗后约 9-9.5M words，属正常损耗',
+      '中文语料用 \w 不能全覆盖，保留 unicode 范围 一-鿿',
+    ],
+  },
+  {
+    id: 2,
+    title: '筛选情感语料',
+    time: '~15 min',
+    color: 'accent',
+    notes: '基于四个先天驱动系统（避免伤害/维持生命/寻求支持/信息获取）的情感词典筛选高情感密度语料。',
+    refs: ['整理思路 - 训练资料情感类 - 情感类语料分类.md', '整理思路 - 初始参数 - 天性.md'],
+    subs: [
+      { label: '定义情感词典: avoidance / maintenance / affiliation / exploration / pain / comfort' },
+      { label: '实现 compute_affect_score(text) → 返回情感密度 0-1' },
+      { label: '筛选 score ≥ 0.6 的片段 → data/emotional/emotional_train.jsonl' },
+      { label: '平衡采样: 如果某类情感过多，降采样到目标比例' },
+      { label: '输出情感语料统计: 总行数 / 类别分布 / 密度分布直方图' },
+    ],
+    warns: [
+      '预计产出 ~1.5-2M words（~15-20%），如果比例过低需降低阈值到 0.5',
+      '关键词匹配对婴儿语料直接有效，不需先用深度分类器',
+      'affiliation（依恋）权重 1.2，pain（疼痛）权重 1.5，因这两类情感信号最明确',
+    ],
+  },
+  {
+    id: 3,
+    title: '训练 Tokenizer',
+    time: '~10 min',
+    color: 'blue',
+    notes: '训练音素级 BPE (vocab 200) + 标准 BPE (vocab 16K)，同时定义双路编码表。',
+    refs: ['整理思路 - 训练资料切分音素.md', '整理思路 - 双路输入训练.md'],
+    subs: [
+      { label: '训练音素级 BPE: vocab_size=200, pre_tokenizer=CharDelimiterSplit' },
+      { label: '训练标准 BPE: vocab_size=16000, pre_tokenizer=ByteLevel' },
+      { label: '保存 tokenizer 到 tokenizers/ 目录' },
+      { label: '定义双路输入的音素 ↔ 标准 Token ID 映射表' },
+    ],
+    warns: [
+      '音素级 BPE 只在阶段一情感训练中使用，标准 16K BPE 是最终推理用的',
+      '双路映射表需确保两种 tokenizer 的 ID 空间不冲突',
+    ],
+  },
+  {
+    id: 4,
+    title: '编码数据',
+    time: '~2 h',
+    notes: '用标准 BPE tokenizer 编码全部语料，字典存储。',
+    refs: ['整理思路 - 数据处理.md', '整理思路 - 训练资料长度排序 - 逐步增加序列长度.md'],
+    subs: [
+      { label: '用标准 BPE 16K tokenizer 编码全部数据 → data/encoded/train_phase2.arrow' },
+      { label: '用双路编码表编码情感语料 → data/encoded/train_phase1.arrow' },
+      { label: '分桶: 按 token 长度分 5 个桶 (≤32/≤64/≤128/≤256/≤512)' },
+      { label: '编码后统计: 总 tokens / 桶分布 / 每桶样本数' },
+    ],
+    warns: [
+      '因 ~10M words → ~110M tokens，arrow 格式约 400-600MB，确保磁盘空间',
+      '分桶用于课程学习，阶段一循环 1→2→3 桶，阶段二逐步扩展到 5 桶',
+    ],
+  },
+  {
+    id: 5,
+    title: '阶段一：情感基底训练',
+    time: '~2 h',
+    color: 'accent',
+    notes: '用情感语料训练 CogLM-Hybrid 的全部参数，让模型形成对情感模式敏感的初始结构。纯随机初始化。',
+    refs: ['整理思路 - 2orN阶段情感训练.md', '整理思路 - 情绪参数.md', '整理思路 - 初始参数 - 天性.md', '整理思路 - 混合线性注意力架构.md'],
+    subs: [
+      { label: 'CogLM-Hybrid: 8层(4层Linear Attention + 4层Softmax), hidden=512-768' },
+      { label: '纯随机初始化: nn.init.normal_(weight, std=0.02)' },
+      { label: '感受状态头 (Sense Head): 挂在层 2/4/6/8 后，输出 16 维感受向量' },
+      { label: '中间层监督: 每2层加辅助情感分类 loss' },
+      { label: '课程学习: 从 ≤32 tokens 桶开始，逐步扩展到 ≤128 tokens' },
+      { label: '训练参数: lr=3e-4, bs=16, epoch=3, warmup=100' },
+      { label: '保存检查点 → checkpoints/phase1_emotion/' },
+    ],
+    warns: [
+      '~1.5M words 训 60-100M 参数不算多，但目标不是学会语言，是让参数对情感模式敏感',
+      '中间层监督（aux affect heads）是确保底层也收到情感信号的关键，不要省略',
+      '感受状态头在推理时可以丢弃，不影响推理速度',
+    ],
+    tips: [
+      '如果情感语料 < 1M words，可以把阶段一模型缩小到 4 层先跑通',
+    ],
+  },
+  {
+    id: 6,
+    title: '冻结情感参数',
+    time: '~1 h (实验性)',
+    color: 'amber',
+    notes: '用激活模式分析识别情感相关参数，设置 requires_grad=False。',
+    refs: ['整理思路 - 2orN阶段情感训练.md', '整理思路 - 参数锁定.md'],
+    subs: [
+      { label: '方法A: 对比情感/中性输入的激活差异，阈值法冻结 top-30% 情感相关参数' },
+      { label: '方法B（简化）: 手动冻结前 2 层（情感基底经验性集中在浅层）' },
+      { label: '设置 requires_grad=False 后跑一个小测试: 情感输入是否仍能触发对应模式' },
+      { label: '导出冻结映射表 → configs/frozen_params.json' },
+    ],
+    warns: [
+      '不要冻结 embedding 和 lm_head 的全部——不确定哪些 token 与情感相关的话，保留它们可训练',
+      '冻结前跑一次验证集困惑度，冻结后跑一次，差异应 <5%',
+      '如果困惑度大幅上升 → 冻结了不该冻的参数 → 方法B 减少冻结层数',
+    ],
+  },
+  {
+    id: 7,
+    title: '阶段二：规则 + 语言训练',
+    time: '~18 h',
+    color: 'accent',
+    notes: '冻结情感参数，用全部 10M words 训练规则和语言能力。这是最耗时的阶段。',
+    refs: ['整理思路 - 动态权重更新.md', '整理思路 - One Not Stop - Mamba-2.md', '整理思路 - 双路输入训练 - 双路门控机制.md', '整理思路 - 动态残差连接.md', '整理思路 - 困惑度 - 动态学习率.md'],
+    subs: [
+      { label: '加载阶段一检查点 + 冻结情感参数' },
+      { label: 'One Not Stop: 思考路 Mamba-2 隐状态永不清零，自驱动演化' },
+      { label: '动态深度: 困惑度门控控制浅层(1-4)梯度更新，深层(5-8)纯前向' },
+      { label: '参数回退: 更新后困惑度上升>5%→恢复快照，降低更新深度' },
+      { label: '感受门控更新器: SenseGatedUpdater 控制更新量' },
+      { label: '课程学习: 逐步从 ≤64 扩展至 ≤512 tokens 桶' },
+      { label: '训练参数: lr=2e-4, bs=16, epoch=7, warmup=200' },
+      { label: '保存最终模型 → checkpoints/babylm_final/' },
+    ],
+    warns: [
+      '18 小时是最长单步，确保 M4 Pro 不断电/不 sleep',
+      '每隔 1 小时存一次 checkpoint（save_steps=1000）',
+      '如果中途崩了，从上一个 checkpoint 恢复，不是从头',
+      '双路门控在长期推理中可能出现路径萎缩（思考路被忽略）→ 用归一化门控缓解',
+    ],
+    tips: [
+      '跑一个简化测试: 先用 1 epoch 跑验证集看 loss 曲线是否正常，再跑完整 7 epochs',
+    ],
+  },
+  {
+    id: 8,
+    title: '评估',
+    time: '~1 h',
+    color: 'blue',
+    notes: '运行 BabyLM 官方评测 pipeline，同时做自定义的情感倾向测试。',
+    refs: ['整理思路 - 情绪参数.md', '整理思路 - 体现对话因果 - 扩散模型2次执行重现语料画面.md'],
+    subs: [
+      { label: '运行 BabyLM 官方评测: BLiMP / SuperGLUE / 故事补全' },
+      { label: '自定义情感测试: 给安抚/冷漠两种回答选项，看是否偏向安抚' },
+      { label: '自定义一致性测试: 同一情感场景多次输入，输出是否稳定' },
+      { label: '与基线模型（单路 Mamba，无两阶段训练）对比结果' },
+      { label: '输出评估报告 → docs/evaluation_report.md' },
+    ],
+    warns: [
+      'BabyLM 官方评测只测预训练能力（zero-shot），不测指令遵循',
+      '情感测试是额外实验，不是比赛成绩的一部分',
+    ],
+  },
+];
+
+// ─── State ───
+function loadState() {
+  try {
+    const raw = localStorage.getItem('babylm_todo_state');
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return null;
+}
+
+function saveState(state) {
+  localStorage.setItem('babylm_todo_state', JSON.stringify(state));
+  document.getElementById('saveTime').textContent = new Date().toLocaleTimeString();
+}
+
+function defaultState() {
+  const steps = STEPS.map(() => false);
+  const subs = STEPS.map(s => s.subs.map(() => false));
+  return { steps, subs };
+}
+
+let state = loadState();
+if (!state) state = defaultState();
+
+// ─── Render ───
+function render() {
+  const container = document.getElementById('stepsContainer');
+  container.innerHTML = '';
+
+  let doneSteps = 0;
+  let totalSubs = 0;
+  let doneSubs = 0;
+
+  STEPS.forEach((step, si) => {
+    const stepDone = state.steps[si];
+    const allSubsDone = step.subs.every((_, j) => state.subs[si][j]);
+    const anySubDone = step.subs.some((_, j) => state.subs[si][j]);
+
+    let statusClass = 'waiting';
+    if (stepDone) statusClass = 'completed';
+    else if (allSubsDone && step.subs.length > 0) statusClass = 'completed';
+    else if (anySubDone) statusClass = 'active';
+
+    if (statusClass === 'completed') doneSteps++;
+
+    const stepEl = document.createElement('div');
+    stepEl.className = 'step ' + statusClass;
+
+    // Checkmark
+    const check = document.createElement('div');
+    check.className = 'step-check';
+    if (stepDone) check.textContent = '✓';
+
+    // Label
+    const label = document.createElement('div');
+    label.className = 'step-label';
+    label.innerHTML = `
+      <div class="step-number">Step ${step.id} · ${step.time}</div>
+      <div class="step-title">${step.title}</div>
+    `;
+
+    // Meta
+    const meta = document.createElement('div');
+    meta.className = 'step-meta';
+    meta.innerHTML = `<span class="toggle-arrow">▾</span>`;
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'step-header';
+    header.appendChild(check);
+    header.appendChild(label);
+    header.appendChild(meta)
+    header.addEventListener('click', () => {
+      header.classList.toggle('open');
+    });
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'step-body';
+
+    // Description
+    const desc = document.createElement('p');
+    desc.textContent = step.notes;
+    body.appendChild(desc);
+
+    // Subtasks
+    const subList = document.createElement('div');
+    subList.className = 'subtask-list';
+
+    step.subs.forEach((sub, j) => {
+      const subDone = state.subs[si][j];
+      if (subDone) doneSubs++;
+      totalSubs++;
+
+      const subEl = document.createElement('div');
+      subEl.className = `subtask ${subDone ? 'done' : ''}`;
+      subEl.innerHTML = `
+        <span class="subtask-check">${subDone ? '✓' : ''}</span>
+        <span class="subtask-label">${sub.label}</span>
+      `;
+      subEl.addEventListener('click', () => {
+        state.subs[si][j] = !state.subs[si][j];
+        // Auto-complete step when all subs are done
+        const allDone = step.subs.every((_, k) => state.subs[si][k]);
+        if (allDone) state.steps[si] = true;
+        else state.steps[si] = false;
+        saveState(state);
+        render();
+      });
+      subList.appendChild(subEl);
+    });
+
+    body.appendChild(subList);
+
+    // Refs
+    if (step.refs && step.refs.length > 0) {
+      const refsP = document.createElement('p');
+      refsP.style.fontSize = '12px';
+      refsP.style.color = 'var(--text-tertiary)';
+      refsP.innerHTML = `📄 ${step.refs.join(' · ')}`;
+      body.appendChild(refsP);
+    }
+
+    // Callouts
+    if (step.warns && step.warns.length > 0) {
+      step.warns.forEach(w => {
+        const c = document.createElement('div');
+        c.className = 'callout warn';
+        c.innerHTML = `⚠️ ${w}`;
+        body.appendChild(c);
+      });
+    }
+
+    if (step.tips && step.tips.length > 0) {
+      step.tips.forEach(t => {
+        const c = document.createElement('div');
+        c.className = 'callout tip';
+        c.innerHTML = `💡 ${t}`;
+        body.appendChild(c);
+      });
+    }
+
+    stepEl.appendChild(header);
+    stepEl.appendChild(body);
+
+    // Extra: open current step if active
+    if (statusClass === 'active' && !stepDone) {
+      header.classList.add('open');
+    }
+
+    container.appendChild(stepEl);
+  });
+
+  // Update stats
+  document.getElementById('statDone').textContent = doneSteps;
+  document.getElementById('statTotal').textContent = STEPS.length;
+  document.getElementById('statSubDone').textContent = doneSubs;
+  document.getElementById('statSubTotal').textContent = totalSubs;
+
+  const pct = Math.round((doneSteps / STEPS.length) * 100);
+  document.getElementById('progressPct').textContent = `${pct}%`;
+  document.getElementById('progressFill').style.width = `${pct}%`;
+}
+
+// ─── Reset ───
+function resetAll() {
+  if (!confirm('Reset all progress?')) return;
+  state = defaultState();
+  saveState(state);
+  render();
+}
+
+// ─── Init ───
+saveState(state);
+render();
+</script>
+</body>
+</html>
